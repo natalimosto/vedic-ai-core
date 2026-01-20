@@ -1,12 +1,26 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import os
 import httpx
 
 app = FastAPI(title="Vedic AI Core")
 
 VEDASTRO_API_KEY = os.getenv("VEDASTRO_API_KEY")
-VEDASTRO_URL = "https://api.vedastro.org/..."  # потім замінимо на реальний endpoint
+VEDASTRO_BASE = "https://api.vedastro.org/api"
 
+# ------------------------
+# MODELS
+# ------------------------
+
+class BirthData(BaseModel):
+    date: str       # YYYY-MM-DD
+    time: str       # HH:MM
+    location: str   # city name
+
+
+# ------------------------
+# CORE
+# ------------------------
 
 @app.get("/")
 def root():
@@ -22,14 +36,31 @@ def health():
     return {"ok": True}
 
 
-@app.get("/test-vedastro")
-async def test_vedastro():
-    if not VEDASTRO_API_KEY:
-        return {"error": "VEDASTRO_API_KEY not set"}
+# ------------------------
+# ASTRO ENDPOINT
+# ------------------------
 
-    async with httpx.AsyncClient() as client:
+@app.post("/chart")
+async def get_chart(data: BirthData):
+    if not VEDASTRO_API_KEY:
+        raise HTTPException(status_code=500, detail="VEDASTRO_API_KEY not set")
+
+    params = {
+        "date": data.date,
+        "time": data.time,
+        "location": data.location,
+        "ayanamsa": "lahiri",
+        "system": "whole_sign",
+        "key": VEDASTRO_API_KEY
+    }
+
+    async with httpx.AsyncClient(timeout=60) as client:
         r = await client.get(
-            VEDASTRO_URL,
-            headers={"Authorization": f"Bearer {VEDASTRO_API_KEY}"}
+            f"{VEDASTRO_BASE}/Chart",
+            params=params
         )
-        return r.json()
+
+    if r.status_code != 200:
+        raise HTTPException(status_code=500, detail=r.text)
+
+    return r.json()
