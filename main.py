@@ -199,3 +199,22 @@ async def panchang(
         "karana": compute_karana(sun_deg, moon_deg),
     }
     return result
+
+@app.get("/panchang")
+async def get_panchang(location: str, date: str, time: str, tz: str = "+01:00"):
+    if not VEDASTRO_API_KEY:
+        raise HTTPException(status_code=500, detail="VEDASTRO_API_KEY not set")
+
+    url = (
+        f"{VEDASTRO_BASE}/Panchang"
+        f"/Location/{location}"
+        f"/Time/{time}/{date}/{tz}"
+        f"/Ayanamsa/{AYANAMSA}"
+        f"/APIKey/{VEDASTRO_API_KEY}"
+    )
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(url)
+
+    return r.json()
+
