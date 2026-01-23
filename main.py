@@ -912,6 +912,7 @@ class KnowledgeIngestInput(BaseModel):
     chunk_size: int = Field(default=1200)
     overlap: int = Field(default=150)
     max_pages: Optional[int] = Field(default=None, description="Optional limit for pages per PDF")
+    start_page: Optional[int] = Field(default=None, description="Start page (1-based)")
 
 
 @app.post("/knowledge/ingest")
@@ -945,6 +946,8 @@ def knowledge_ingest(payload: KnowledgeIngestInput):
         empty_pages = 0
         with open(out_path, "w", encoding="utf-8") as f:
             for page_index, page in enumerate(reader.pages, start=1):
+                if payload.start_page and page_index < payload.start_page:
+                    continue
                 if payload.max_pages and page_index > payload.max_pages:
                     break
                 text = page.extract_text() or ""
@@ -983,6 +986,7 @@ def knowledge_ingest_run(
     chunk_size: int = Query(default=1200),
     overlap: int = Query(default=150),
     max_pages: Optional[int] = Query(default=None),
+    start_page: Optional[int] = Query(default=None),
 ):
     payload = KnowledgeIngestInput(
         input_dir=input_dir,
@@ -990,6 +994,7 @@ def knowledge_ingest_run(
         chunk_size=chunk_size,
         overlap=overlap,
         max_pages=max_pages,
+        start_page=start_page,
     )
     return knowledge_ingest(payload)
 
