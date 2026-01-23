@@ -931,42 +931,66 @@ def knowledge_ingest(payload: KnowledgeIngestInput):
         raise HTTPException(status_code=422, detail="Input directory not found")
     os.makedirs(output_dir, exist_ok=True)
 
-    pdf_files = [f for f in os.listdir(input_dir) if f.lower().endswith(".pdf")]
-    if not pdf_files:
+    source_files = [
+        f
+        for f in os.listdir(input_dir)
+        if f.lower().endswith((".pdf", ".txt", ".md"))
+    ]
+    if not source_files:
         raise HTTPException(status_code=422, detail="No PDF files found in input directory")
 
     output_files = []
     total_chunks = 0
-    for filename in sorted(pdf_files):
+    for filename in sorted(source_files):
         pdf_path = os.path.join(input_dir, filename)
-        reader = PdfReader(pdf_path)
         out_path = os.path.join(output_dir, f"{os.path.splitext(filename)[0]}.jsonl")
         pages_processed = 0
         chunks_written = 0
         empty_pages = 0
         with open(out_path, "w", encoding="utf-8") as f:
-            for page_index, page in enumerate(reader.pages, start=1):
-                if payload.start_page and page_index < payload.start_page:
-                    continue
-                if payload.max_pages and page_index > payload.max_pages:
-                    break
-                text = page.extract_text() or ""
-                pages_processed += 1
+            if filename.lower().endswith(".pdf"):
+                reader = PdfReader(pdf_path)
+                for page_index, page in enumerate(reader.pages, start=1):
+                    if payload.start_page and page_index < payload.start_page:
+                        continue
+                    if payload.max_pages and page_index > payload.max_pages:
+                        break
+                    text = page.extract_text() or ""
+                    pages_processed += 1
+                    if not text.strip():
+                        empty_pages += 1
+                        continue
+                    for idx, chunk in enumerate(
+                        chunk_text(text, payload.chunk_size, payload.overlap)
+                    ):
+                        record = {
+                            "source": filename,
+                            "page": page_index,
+                            "chunk_index": idx,
+                            "text": chunk,
+                        }
+                        f.write(json.dumps(record, ensure_ascii=True) + "\n")
+                        chunks_written += 1
+                        total_chunks += 1
+            else:
+                with open(pdf_path, "r", encoding="utf-8", errors="ignore") as src:
+                    text = src.read()
+                pages_processed = 1
                 if not text.strip():
-                    empty_pages += 1
-                    continue
-                for idx, chunk in enumerate(
-                    chunk_text(text, payload.chunk_size, payload.overlap)
-                ):
-                    record = {
-                        "source": filename,
-                        "page": page_index,
-                        "chunk_index": idx,
-                        "text": chunk,
-                    }
-                    f.write(json.dumps(record, ensure_ascii=True) + "\n")
-                    chunks_written += 1
-                    total_chunks += 1
+                    empty_pages = 1
+                else:
+                    for idx, chunk in enumerate(
+                        chunk_text(text, payload.chunk_size, payload.overlap)
+                    ):
+                        record = {
+                            "source": filename,
+                            "page": 1,
+                            "chunk_index": idx,
+                            "text": chunk,
+                        }
+                        f.write(json.dumps(record, ensure_ascii=True) + "\n")
+                        chunks_written += 1
+                        total_chunks += 1
         output_files.append(out_path)
 
     result = {
@@ -1005,6 +1029,25 @@ async def knowledge_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=422, detail="Only PDF files are supported")
 
     target_dir = os.path.join(BASE_DIR, "knowledge", "sources")
+    os.makedirs(target_dir, exist_ok=True)
+    target_path = os.path.join(target_dir, file.filename)
+
+    with open(target_path, "wb") as f:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            f.write(chunk)
+
+    return {"saved_to": target_path}
+
+
+@app.post("/knowledge/upload-text")
+async def knowledge_upload_text(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith((".txt", ".md")):
+        raise HTTPException(status_code=422, detail="Only TXT or MD files are supported")
+
+    target_dir = os.path.join(BASE_DIR, "knowledge", "texts")
     os.makedirs(target_dir, exist_ok=True)
     target_path = os.path.join(target_dir, file.filename)
 

@@ -207,6 +207,7 @@ cython_debug/
 # Knowledge base artifacts
 knowledge/sources/*.pdf
 knowledge/chunks/
+knowledge/texts/
 outputs/
 
 # Marimo
