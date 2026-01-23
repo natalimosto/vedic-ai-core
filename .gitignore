@@ -201,6 +201,14 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# macOS
+.DS_Store
+
+# Knowledge base artifacts
+knowledge/sources/*.pdf
+knowledge/chunks/
+outputs/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
