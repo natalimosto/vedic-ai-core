@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, status
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from timezonefinder import TimezoneFinder
+import uuid
 import httpx
 from math import floor
 from typing import Optional
@@ -1010,4 +1011,38 @@ async def knowledge_upload(file: UploadFile = File(...)):
             f.write(chunk)
 
     return {"saved_to": target_path}
+
+
+def _write_job_status(job_path: str, payload: dict):
+    with open(job_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=True, indent=2)
+
+
+def _run_knowledge_ingest_job(job_path: str, payload: KnowledgeIngestInput):
+    _write_job_status(job_path, {"status": "running"})
+    try:
+        result = knowledge_ingest(payload)
+        _write_job_status(job_path, {"status": "completed", "result": result})
+    except Exception as exc:  # pragma: no cover - best effort background logging
+        _write_job_status(job_path, {"status": "failed", "error": str(exc)})
+
+
+@app.post("/knowledge/ingest-start")
+def knowledge_ingest_start(payload: KnowledgeIngestInput, background_tasks: BackgroundTasks):
+    jobs_dir = os.path.join(BASE_DIR, "knowledge", "jobs")
+    os.makedirs(jobs_dir, exist_ok=True)
+    job_id = uuid.uuid4().hex
+    job_path = os.path.join(jobs_dir, f"{job_id}.json")
+    background_tasks.add_task(_run_knowledge_ingest_job, job_path, payload)
+    return {"job_id": job_id, "status_url": f"/knowledge/ingest-status?job_id={job_id}"}
+
+
+@app.get("/knowledge/ingest-status")
+def knowledge_ingest_status(job_id: str = Query(...)):
+    jobs_dir = os.path.join(BASE_DIR, "knowledge", "jobs")
+    job_path = os.path.join(jobs_dir, f"{job_id}.json")
+    if not os.path.exists(job_path):
+        raise HTTPException(status_code=404, detail="Job not found")
+    with open(job_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
