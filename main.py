@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -991,4 +991,23 @@ def knowledge_ingest_run(
         max_pages=max_pages,
     )
     return knowledge_ingest(payload)
+
+
+@app.post("/knowledge/upload")
+async def knowledge_upload(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=422, detail="Only PDF files are supported")
+
+    target_dir = os.path.join(BASE_DIR, "knowledge", "sources")
+    os.makedirs(target_dir, exist_ok=True)
+    target_path = os.path.join(target_dir, file.filename)
+
+    with open(target_path, "wb") as f:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            f.write(chunk)
+
+    return {"saved_to": target_path}
 
